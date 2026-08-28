@@ -1,3 +1,5 @@
+import { CaveGenerator } from './CaveGenerator.js';
+
 export class SeedRandom {
   constructor(seed) {
     const text = String(seed);
@@ -93,7 +95,17 @@ export class WorldGenerator {
       }
     }
 
+    const caves = new CaveGenerator(this.size).generate(cells, numericSeed);
     const dominantBiome = Object.entries(biomeCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'forest';
-    return { seed: seedText, size: this.size, cells, villages, treeCount, waterPercent: Math.round(waterCount / cells.length * 100), dominantBiome };
+    return {
+      seed: seedText,
+      size: this.size,
+      cells,
+      villages,
+      caves,
+      treeCount,
+      waterPercent: Math.round(waterCount / cells.length * 100),
+      dominantBiome
+    };
   }
 }
