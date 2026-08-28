@@ -12,8 +12,8 @@ scene.fog = new THREE.Fog(0x9ec7e3, 70, 190);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 600);
 camera.position.set(0, 24, 0);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 viewport.appendChild(renderer.domElement);
@@ -25,23 +25,67 @@ sun.castShadow = true;
 sun.shadow.mapSize.set(1024, 1024);
 scene.add(sun);
 
-const materials = {
-  grass: new THREE.MeshStandardMaterial({ color: 0x5c9e48, roughness: 1 }),
-  plains: new THREE.MeshStandardMaterial({ color: 0x7fae55, roughness: 1 }),
-  forest: new THREE.MeshStandardMaterial({ color: 0x4d8b43, roughness: 1 }),
-  jungle: new THREE.MeshStandardMaterial({ color: 0x2f8c50, roughness: 1 }),
-  taiga: new THREE.MeshStandardMaterial({ color: 0x568267, roughness: 1 }),
-  desert: new THREE.MeshStandardMaterial({ color: 0xd9bd70, roughness: 1 }),
-  beach: new THREE.MeshStandardMaterial({ color: 0xe3cf8b, roughness: 1 }),
-  mountain: new THREE.MeshStandardMaterial({ color: 0x777d76, roughness: 1 }),
-  snow: new THREE.MeshStandardMaterial({ color: 0xe9f0f0, roughness: 0.9 }),
-  dirt: new THREE.MeshStandardMaterial({ color: 0x855a3b, roughness: 1 }),
-  stone: new THREE.MeshStandardMaterial({ color: 0x666a68, roughness: 1 }),
-  sand: new THREE.MeshStandardMaterial({ color: 0xd9bd70, roughness: 1 }),
-  water: new THREE.MeshStandardMaterial({ color: 0x3c9fd0, transparent: true, opacity: 0.78, roughness: 0.1 }),
-  trunk: new THREE.MeshStandardMaterial({ color: 0x76502f, roughness: 1 }),
-  leaves: new THREE.MeshStandardMaterial({ color: 0x34713d, roughness: 1 })
+// Texture system: upload/replace files in assets/textures/ and the game picks them up automatically.
+// Recommended: 16x16 square pixel-art JPG/PNG. 32x32 and 64x64 are also supported.
+const textureLoader = new THREE.TextureLoader();
+const textureFiles = {
+  grass: 'grass.jpg',
+  dirt: 'dirt.jpg',
+  stone: 'stone.jpg',
+  sand: 'sand.jpg',
+  leaves: 'leaves.jpg',
+  trunk: 'trunk.jpg',
+  water: 'water.jpg',
+  snow: 'snow.jpg',
+  mountain: 'mountain.jpg',
+  plains: 'plains.jpg',
+  forest: 'forest.jpg',
+  jungle: 'jungle.jpg',
+  taiga: 'taiga.jpg',
+  desert: 'desert.jpg',
+  beach: 'beach.jpg'
 };
+
+const fallbackColors = {
+  grass: 0x5c9e48, plains: 0x7fae55, forest: 0x4d8b43, jungle: 0x2f8c50,
+  taiga: 0x568267, desert: 0xd9bd70, beach: 0xe3cf8b, mountain: 0x777d76,
+  snow: 0xe9f0f0, dirt: 0x855a3b, stone: 0x666a68, sand: 0xd9bd70,
+  water: 0x3c9fd0, trunk: 0x76502f, leaves: 0x34713d
+};
+
+const materials = {};
+const textures = {};
+for (const [type, filename] of Object.entries(textureFiles)) {
+  const material = new THREE.MeshStandardMaterial({
+    color: fallbackColors[type] ?? 0xffffff,
+    roughness: type === 'water' ? 0.1 : 1,
+    transparent: type === 'water',
+    opacity: type === 'water' ? 0.78 : 1
+  });
+  materials[type] = material;
+
+  const texture = textureLoader.load(
+    `./assets/textures/${filename}`,
+    loaded => {
+      loaded.colorSpace = THREE.SRGBColorSpace;
+      loaded.magFilter = THREE.NearestFilter;
+      loaded.minFilter = THREE.NearestFilter;
+      loaded.wrapS = THREE.RepeatWrapping;
+      loaded.wrapT = THREE.RepeatWrapping;
+      loaded.generateMipmaps = false;
+      material.map = loaded;
+      material.color.setHex(0xffffff);
+      material.needsUpdate = true;
+      textures[type] = loaded;
+    },
+    undefined,
+    () => {
+      // Missing files intentionally keep the built-in fallback color.
+      console.info(`[MCraft] Optional texture not found: assets/textures/${filename}`);
+    }
+  );
+  textures[type] = texture;
+}
 
 const world = new StreamingWorld(scene, materials, $('#seed').value || '739182', 2);
 const controls = new PointerLockControls(camera, renderer.domElement);
@@ -69,7 +113,6 @@ addEventListener('keydown', event => {
 });
 addEventListener('keyup', event => keys.delete(event.code));
 
-const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
 let lastTime = performance.now();
 
