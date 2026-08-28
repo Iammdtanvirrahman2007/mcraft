@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MCraft | World Generator</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <aside class="panel">
+    <div class="brand">⛏️ MCraft</div>
+    <p class="subtitle">Procedural World Generator</p>
+
+    <label for="seed">World Seed</label>
+    <div class="row">
+      <input id="seed" value="739182" autocomplete="off" />
+      <button id="randomSeed" title="Random seed">🎲</button>
+    </div>
+
+    <label for="worldSize">World Size</label>
+    <select id="worldSize">
+      <option value="48">48 × 48</option>
+      <option value="64" selected>64 × 64</option>
+      <option value="96">96 × 96</option>
+    </select>
+
+    <button id="generate" class="primary">🌍 Generate World</button>
+
+    <div class="stats">
+      <div><span>Biome</span><b id="biome">Mixed</b></div>
+      <div><span>Trees</span><b id="trees">0</b></div>
+      <div><span>Villages</span><b id="villages">0</b></div>
+      <div><span>Water</span><b id="water">0%</b></div>
+    </div>
+
+    <p class="hint">Drag to orbit • Scroll to zoom • Right-drag to pan</p>
+  </aside>
+
+  <main id="viewport"></main>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
