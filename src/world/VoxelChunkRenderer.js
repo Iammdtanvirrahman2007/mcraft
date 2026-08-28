@@ -26,6 +26,7 @@ export class VoxelChunkRenderer {
     this.scene.add(this.group);
     this.chunkManager = new ChunkManager(CHUNK_SIZE);
     this.blockSize = 1;
+    this.preview = false;
   }
 
   clear() {
@@ -35,10 +36,20 @@ export class VoxelChunkRenderer {
     this.group.clear();
   }
 
+  setPreview(enabled) {
+    this.preview = enabled;
+    this.group.traverse(object => {
+      if (!object.isInstancedMesh || !object.material) return;
+      object.material.transparent = enabled;
+      object.material.opacity = enabled ? 0.28 : 1;
+      object.material.depthWrite = !enabled;
+      object.material.needsUpdate = true;
+    });
+  }
+
   build(world) {
     this.clear();
     const chunks = this.chunkManager.buildFromWorld(world);
-    const cells = new Map(world.cells.map(cell => [key(cell.x, 0, cell.z), cell]));
     const solid = new Set();
     const biomeByColumn = new Map();
 
@@ -70,8 +81,6 @@ export class VoxelChunkRenderer {
       const depth = Math.max(2, Math.min(WORLD_HEIGHT - 2, Math.floor(chamber.depth)));
       carve(chamber.x, depth, chamber.z, Math.max(1.8, chamber.radius));
     }
-
-    // Optional surface openings remove a small vertical shaft only where the cave generator chose one.
     for (const entrance of world.caves?.entrances || []) {
       const column = biomeByColumn.get(`${entrance.x},${entrance.z}`);
       if (!column) continue;
@@ -79,9 +88,6 @@ export class VoxelChunkRenderer {
         carve(entrance.x, y, entrance.z, entrance.radius * 0.65);
       }
     }
-
-    const chunkGroups = new Map();
-    for (const chunk of chunks) chunkGroups.set(ChunkManager.key(chunk.cx, chunk.cz), chunk);
 
     for (const chunk of chunks) {
       const materialBuckets = new Map();
@@ -132,15 +138,12 @@ export class VoxelChunkRenderer {
       this.group.add(group);
     }
 
-    // Ocean remains a separate continuous surface for now.
-    const water = new THREE.Mesh(
-      new THREE.PlaneGeometry(world.size, world.size),
-      this.materials.water
-    );
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(world.size, world.size), this.materials.water);
     water.rotation.x = -Math.PI / 2;
     water.position.y = 2.05;
     this.group.add(water);
 
+    this.setPreview(this.preview);
     return { chunks: chunks.length, solidBlocks: solid.size };
   }
 }
