@@ -1,29 +1,34 @@
 # ⛏️ MCraft
 
-A Minecraft-inspired procedural 3D world generator for the browser. The project starts with the world-generation tool; player gameplay will be added later.
+A Minecraft-inspired procedural 3D world engine for the browser. The current focus is a deterministic, chunk-based infinite world foundation; player gameplay will be layered on top later.
 
-## Current milestone
+## Current foundation
 
-- Seed-based procedural terrain
-- Ocean and beach generation
-- Forest, jungle, taiga, desert, mountain and snow biomes
-- Procedural trees
-- Procedural village preview
-- World-size selector
-- Random seed button
-- Interactive 3D orbit camera
+- Infinite coordinate space driven by a world seed
+- 16 × 16 horizontal chunks
+- 48-block vertical world height
+- Per-chunk procedural terrain and biomes
+- Ocean / beach / plains / forest / jungle / taiga / desert / mountain / snow
+- Underground 3D cave carving using absolute world coordinates
+- Caves are not forced to have surface entrances
+- Chunk loading around the camera/player coordinate
+- Automatic unloading of distant chunks
+- Returning to a chunk regenerates the same base terrain from the same seed + coordinates
+- Free-fly test controller for moving across chunk boundaries
+- Chunk grid debug view
+- Underground transparency preview
 
 ## Run
 
-No build step is required for the current prototype. Serve the repository with any static HTTP server, then open `index.html`.
-
-For example, with Python:
+No build step is required. Serve the repository with a static HTTP server:
 
 ```bash
 python3 -m http.server 8000
 ```
 
-Then visit `http://localhost:8000`.
+Open `http://localhost:8000`.
+
+Click the 3D world to capture the mouse. Use `WASD` to travel, `Space` / `Ctrl` to move vertically, and `Esc` to release the mouse.
 
 ## Architecture
 
@@ -32,20 +37,34 @@ src/
 ├── main.js
 ├── style.css
 └── world/
-    └── WorldGenerator.js
+    ├── InfiniteWorldGenerator.js   # deterministic terrain, biomes, caves
+    ├── StreamingWorld.js           # load/unload chunks around coordinates
+    ├── ChunkManager.js             # chunk bookkeeping helpers
+    └── VoxelChunkRenderer.js       # voxel rendering/debug preview
+
+assets/
+└── ...                             # future GLB/model assets
 ```
 
-The next versions will split the world system into terrain, biome, water, tree, structure, village, asset and chunk managers. Assets will eventually live under `assets/` and be data-driven so new buildings, villages, trees and mobs can be added without rewriting the generator.
+### Determinism
 
-## Roadmap
+Base terrain is generated from:
 
-1. Chunk-based world streaming
-2. Better noise and biome transitions
-3. Rivers and ponds
-4. Data-driven building/village templates
-5. Asset registry and texture atlas
-6. Mob definitions and spawning
-7. Player controller
-8. Block breaking/placing
-9. Inventory and crafting
-10. Save/load worlds
+```text
+world seed + absolute X/Z coordinate
+```
+
+Cave density also uses absolute X/Y/Z coordinates, so crossing a chunk boundary does not require a new local noise seed and the cave pattern can continue consistently.
+
+## Next milestones
+
+1. Optimized chunk meshing / greedy meshing
+2. Rare, intentional cave entrances and underground water/lava
+3. Data-driven GLB asset placement per chunk
+4. Trees, buildings, villages, ponds and structures from external assets
+5. Actual player controller and collision
+6. Block breaking / placing
+7. Inventory and crafting
+8. Chunk modification persistence
+9. Save/load world data
+10. Mobs and gameplay systems
