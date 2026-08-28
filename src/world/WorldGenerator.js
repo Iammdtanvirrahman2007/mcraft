@@ -67,13 +67,13 @@ export class WorldGenerator {
         else if (height < .34) biome = 'beach';
         else if (height > .72) biome = temperature < .48 ? 'snow' : 'mountain';
         else if (temperature > .68 && moisture > .52) biome = 'jungle';
-        else if (moisture < .32) biome = 'desert';
+        else if (moisture < .27) biome = 'desert';
         else if (temperature < .36) biome = 'taiga';
+        else if (moisture < .47) biome = 'plains';
         else biome = 'forest';
 
         biomeCount[biome] = (biomeCount[biome] || 0) + 1;
-        const isWater = biome === 'ocean';
-        if (isWater) waterCount++;
+        if (biome === 'ocean') waterCount++;
 
         let tree = false;
         if (['forest', 'jungle', 'taiga'].includes(biome) && seed.next() < (biome === 'jungle' ? .18 : .09)) {
@@ -85,8 +85,8 @@ export class WorldGenerator {
 
     const villages = [];
     const villageChance = new SeedRandom(numericSeed + 9981);
+    const candidates = cells.filter(c => ['plains', 'forest', 'desert'].includes(c.biome) && c.height > .36);
     for (let i = 0; i < Math.floor(this.size / 32); i++) {
-      const candidates = cells.filter(c => ['plains', 'forest', 'desert'].includes(c.biome) && c.height > .36);
       if (candidates.length && villageChance.next() > .15) {
         const c = candidates[Math.floor(villageChance.next() * candidates.length)];
         villages.push({ x: c.x, z: c.z, type: villageChance.next() > .65 ? 'large' : 'small' });
