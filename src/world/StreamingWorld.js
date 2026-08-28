@@ -9,14 +9,17 @@ export class StreamingWorld {
     this.materials = materials;
     this.seed = String(seed || '739182');
     this.generator = new InfiniteWorldGenerator(this.seed);
-    this.loadRadius = loadRadius;
-    this.unloadRadius = loadRadius + 1;
+    this.loadRadius = Math.max(1, loadRadius | 0);
+    this.unloadRadius = this.loadRadius + 1;
     this.chunks = new Map();
+    this.cache = new Map();
+    this.cacheLimit = 64;
     this.root = new THREE.Group();
     this.root.name = 'MCraft_World';
     this.scene.add(this.root);
     this.lastCenter = null;
     this.pending = new Set();
+    this.queue = [];
     this.gridVisible = false;
     this.preview = false;
   }
@@ -30,15 +33,17 @@ export class StreamingWorld {
   clear() {
     for (const entry of this.chunks.values()) this.disposeChunk(entry);
     this.chunks.clear();
+    this.cache.clear();
     this.root.clear();
     this.pending.clear();
+    this.queue.length = 0;
     this.lastCenter = null;
   }
 
   disposeChunk(entry) {
     entry.group.traverse(obj => {
       if (obj.geometry) obj.geometry.dispose();
-      if (obj.material && obj.material.isMaterial && obj.material.userData?.mcraftOwned) obj.material.dispose();
+      if (obj.material?.isMaterial && obj.material.userData?.mcraftOwned) obj.material.dispose();
     });
     this.root.remove(entry.group);
   }
@@ -51,35 +56,61 @@ export class StreamingWorld {
     return FACE_OFFSETS.some(([dx,dy,dz]) => !this.blockAt(block.x + dx, block.y + dy, block.z + dz));
   }
 
+  addInstancedBucket(group, type, blocks, castShadow = true) {
+    if (!blocks.length) return;
+    const material = this.materials[type] || this.materials.stone;
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), material, blocks.length);
+    const matrix = new THREE.Matrix4();
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      matrix.makeTranslation(b.x + 0.5, b.y + 0.5, b.z + 0.5);
+      mesh.setMatrixAt(i, matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.castShadow = castShadow;
+    mesh.receiveShadow = true;
+    mesh.userData.mcraftChunk = group.name;
+    mesh.userData.blockType = type;
+    group.add(mesh);
+  }
+
   buildChunk(cx, cz) {
     const key = chunkKey(cx, cz);
     if (this.chunks.has(key)) return this.chunks.get(key);
-    const data = this.generator.generateChunk(cx, cz);
+
+    let data = this.cache.get(key);
+    if (data) this.cache.delete(key);
+    else data = this.generator.generateChunk(cx, cz);
+
     const group = new THREE.Group();
     group.name = `Chunk_${cx}_${cz}`;
     const buckets = new Map();
-
     for (const block of data.blocks) {
       if (!this.exposed(block)) continue;
       const list = buckets.get(block.type) || [];
       list.push(block);
       buckets.set(block.type, list);
     }
+    for (const [type, blocks] of buckets) this.addInstancedBucket(group, type, blocks, type !== 'water');
 
-    for (const [type, blocks] of buckets) {
-      const material = this.materials[type] || this.materials.stone;
-      const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), material, blocks.length);
-      const matrix = new THREE.Matrix4();
-      for (let i = 0; i < blocks.length; i++) {
-        const b = blocks[i];
-        matrix.makeTranslation(b.x + 0.5, b.y + 0.5, b.z + 0.5);
-        mesh.setMatrixAt(i, matrix);
+    // Trees were generated but previously never rendered.
+    for (const tree of data.trees) {
+      const trunk = [];
+      const leaves = [];
+      const height = tree.type === 'pine' ? 5 : tree.type === 'jungle' ? 6 : 4;
+      for (let y = 0; y < height; y++) trunk.push({ x: tree.x - 0.5, y: tree.y + y, z: tree.z - 0.5 });
+      const top = tree.y + height;
+      const radius = tree.type === 'jungle' ? 2 : 1;
+      for (let y = top - 2; y <= top; y++) {
+        const r = y === top ? 1 : radius;
+        for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+          if (Math.abs(dx) + Math.abs(dz) <= r + 1) leaves.push({ x: tree.x - 0.5 + dx, y, z: tree.z - 0.5 + dz });
+        }
       }
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.castShadow = type !== 'water';
-      mesh.receiveShadow = true;
-      mesh.userData.mcraftChunk = key;
-      group.add(mesh);
+      const trunkMat = this.materials.trunk;
+      const leafMat = this.materials.leaves;
+      if (trunk.length) this.addInstancedBucket(group, 'trunk', trunk, true);
+      if (leaves.length) this.addInstancedBucket(group, 'leaves', leaves, true);
     }
 
     const grid = new THREE.LineSegments(
@@ -94,21 +125,22 @@ export class StreamingWorld {
     this.root.add(group);
     const entry = { data, group };
     this.chunks.set(key, entry);
+    this.setPreview(this.preview);
     return entry;
   }
 
   setGridVisible(enabled) {
-    this.gridVisible = enabled;
-    this.root.traverse(obj => { if (obj.userData?.chunkGrid) obj.visible = enabled; });
+    this.gridVisible = !!enabled;
+    this.root.traverse(obj => { if (obj.userData?.chunkGrid) obj.visible = this.gridVisible; });
   }
 
   setPreview(enabled) {
-    this.preview = enabled;
+    this.preview = !!enabled;
     this.root.traverse(obj => {
       if (!obj.isInstancedMesh || !obj.material) return;
-      obj.material.transparent = enabled;
-      obj.material.opacity = enabled ? 0.28 : 1;
-      obj.material.depthWrite = !enabled;
+      obj.material.transparent = this.preview;
+      obj.material.opacity = this.preview ? 0.28 : 1;
+      obj.material.depthWrite = !this.preview;
       obj.material.needsUpdate = true;
     });
   }
@@ -119,6 +151,8 @@ export class StreamingWorld {
     if (!entry) return;
     this.disposeChunk(entry);
     this.chunks.delete(key);
+    this.cache.set(key, entry.data);
+    while (this.cache.size > this.cacheLimit) this.cache.delete(this.cache.keys().next().value);
   }
 
   update(playerX, playerZ) {
@@ -137,16 +171,21 @@ export class StreamingWorld {
     }
     targets.sort((a,b) => a.d - b.d);
 
-    let added = 0;
+    // Queue work instead of generating multiple chunks synchronously in one frame.
     for (const target of targets) {
       const key = chunkKey(target.cx, target.cz);
       if (!this.chunks.has(key) && !this.pending.has(key)) {
         this.pending.add(key);
-        this.buildChunk(target.cx, target.cz);
-        this.pending.delete(key);
-        added++;
-        if (added >= 2) break;
+        this.queue.push(target);
       }
+    }
+    this.queue.sort((a,b) => a.d - b.d);
+
+    const next = this.queue.shift();
+    if (next) {
+      const key = chunkKey(next.cx, next.cz);
+      if (!this.chunks.has(key)) this.buildChunk(next.cx, next.cz);
+      this.pending.delete(key);
     }
 
     for (const key of [...this.chunks.keys()]) {
@@ -155,7 +194,7 @@ export class StreamingWorld {
     }
 
     const complete = targets.every(t => this.chunks.has(chunkKey(t.cx, t.cz)));
-    return { moved, centerX, centerZ, complete };
+    return { moved, centerX, centerZ, complete, queued: this.queue.length };
   }
 
   getStats() {
@@ -172,6 +211,7 @@ export class StreamingWorld {
       blocks,
       caves,
       trees,
+      queued: this.queue.length,
       dominantBiome: Object.entries(biomes).sort((a,b) => b[1]-a[1])[0]?.[0] || 'plains',
       center: this.lastCenter
     };
