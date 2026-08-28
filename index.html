@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#10151b" />
+  <meta name="description" content="MCraft: a browser-based infinite procedural voxel world." />
   <title>MCraft | Infinite World</title>
   <link rel="stylesheet" href="./src/style.css" />
   <script type="importmap">
@@ -18,7 +19,7 @@
 <body>
   <aside class="panel">
     <div class="brand">⛏️ MCraft</div>
-    <p class="subtitle">Infinite procedural chunk engine</p>
+    <p class="subtitle">Infinite procedural voxel world</p>
 
     <label for="seed">World Seed</label>
     <div class="row">
@@ -27,11 +28,24 @@
     </div>
 
     <button id="generate" class="primary">🌍 Generate / Reset</button>
-    <button id="toggleGrid" class="secondary">▦ Show Chunk Grid</button>
-    <button id="cavePreview" class="secondary">🕳️ Cave Preview</button>
+    <div class="buttonGrid">
+      <button id="toggleGrid" class="secondary">▦ Chunk Grid</button>
+      <button id="cavePreview" class="secondary">🕳️ Cave Preview</button>
+      <button id="dayNight" class="secondary">☀️ Day</button>
+    </div>
+
+    <label>Block</label>
+    <div class="hotbar">
+      <button data-block="grass">1 🌿</button>
+      <button data-block="dirt">2 🟫</button>
+      <button data-block="stone">3 🪨</button>
+      <button data-block="sand">4 🟨</button>
+      <button data-block="leaves">5 🍃</button>
+    </div>
 
     <div class="stats">
       <div><span>Seed</span><b id="seedStatus">739182</b></div>
+      <div><span>Selected</span><b id="selectedBlock">grass</b></div>
       <div><span>World X / Z</span><b id="coord">0, 0</b></div>
       <div><span>Chunk X / Z</span><b id="chunkCoord">0, 0</b></div>
       <div><span>Loaded</span><b id="chunks">0</b></div>
@@ -39,8 +53,11 @@
       <div><span>Cave blocks</span><b id="caveBlocks">0</b></div>
     </div>
 
-    <div class="status" id="status">Ready</div>
-    <p class="hint">Click the world, then WASD = move • Space/Shift = up/down • Mouse = look • Esc = release mouse</p>
+    <div class="status" id="status">Preparing world...</div>
+    <p class="hint">
+      Click world = capture mouse • WASD = move • Shift = sprint • Space/Ctrl = up/down<br>
+      Left click = break • Right click = place • 1–5 = select block • N = day/night • Esc = release mouse
+    </p>
   </aside>
 
   <div id="crosshair">+</div>
