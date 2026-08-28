@@ -1,15 +1,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/controls/OrbitControls.js';
-import { WorldGenerator } from './world/WorldGenerator.js';
+import { InfiniteWorld } from './world/InfiniteWorld.js';
 import { VoxelChunkRenderer } from './world/VoxelChunkRenderer.js';
 
 const viewport = document.querySelector('#viewport');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9ec7e3);
-scene.fog = new THREE.Fog(0x9ec7e3, 55, 150);
+scene.fog = new THREE.Fog(0x9ec7e3, 65, 175);
 
-const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, .1, 300);
-camera.position.set(42, 35, 42);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, .1, 500);
+camera.position.set(12, 14, 12);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -20,9 +20,9 @@ viewport.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 5, 0);
 controls.enableDamping = true;
-controls.maxPolarAngle = Math.PI * .92;
-controls.minDistance = 7;
-controls.maxDistance = 150;
+controls.maxPolarAngle = Math.PI * .49;
+controls.minDistance = 4;
+controls.maxDistance = 90;
 
 scene.add(new THREE.HemisphereLight(0xdff4ff, 0x30251b, 2.2));
 const sun = new THREE.DirectionalLight(0xffffff, 3.2);
@@ -41,91 +41,61 @@ const materials = {
   mountain: new THREE.MeshStandardMaterial({ color: 0x777d76, roughness: 1 }),
   snow: new THREE.MeshStandardMaterial({ color: 0xe9f0f0, roughness: .9 }),
   dirt: new THREE.MeshStandardMaterial({ color: 0x855a3b, roughness: 1 }),
-  stone: new THREE.MeshStandardMaterial({ color: 0x666a68, roughness: 1 }),
-  water: new THREE.MeshStandardMaterial({ color: 0x3c9fd0, transparent: true, opacity: .78, roughness: .1 }),
-  trunk: new THREE.MeshStandardMaterial({ color: 0x76502f }),
-  leaves: new THREE.MeshStandardMaterial({ color: 0x34713d }),
-  village: new THREE.MeshStandardMaterial({ color: 0xb97845 }),
-  roof: new THREE.MeshStandardMaterial({ color: 0x7a4432 })
+  stone: new THREE.MeshStandardMaterial({ color: 0x666a68, roughness: 1 })
 };
 
 const voxelWorld = new VoxelChunkRenderer(scene, materials);
-const decorationGroup = new THREE.Group();
-decorationGroup.name = 'MCraft_Decorations';
-scene.add(decorationGroup);
+const infiniteWorld = new InfiniteWorld(voxelWorld, {
+  seed: document.querySelector('#seed').value || '739182',
+  viewDistance: 2,
+  unloadDistance: 4
+});
 
-function clearDecorations() {
-  decorationGroup.traverse(object => {
-    if (object.geometry) object.geometry.dispose();
-  });
-  decorationGroup.clear();
-}
+const player = { x: 0, y: 8, z: 0, speed: .45 };
+const keys = new Set();
+addEventListener('keydown', e => keys.add(e.key.toLowerCase()));
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 
-function addTree(x, y, z, scale = 1) {
-  const trunk = new THREE.Mesh(new THREE.BoxGeometry(.34 * scale, 1.7 * scale, .34 * scale), materials.trunk);
-  trunk.position.set(x, y + .85 * scale, z);
-  trunk.castShadow = true;
-  decorationGroup.add(trunk);
-  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.25 * scale, 2.9 * scale, 7), materials.leaves);
-  leaves.position.set(x, y + 2.35 * scale, z);
-  leaves.castShadow = true;
-  decorationGroup.add(leaves);
-}
-
-function addVillage(x, y, z, size = 1) {
-  const count = size > 1 ? 5 : 3;
-  for (let i = 0; i < count; i++) {
-    const angle = i / count * Math.PI * 2;
-    const px = x + Math.cos(angle) * (4 + i);
-    const pz = z + Math.sin(angle) * (4 + i);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.1, 2.6), materials.village);
-    body.position.set(px, y + 1.05, pz);
-    body.castShadow = true;
-    decorationGroup.add(body);
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(2.15, 1.45, 4), materials.roof);
-    roof.rotation.y = Math.PI / 4;
-    roof.position.set(px, y + 2.82, pz);
-    roof.castShadow = true;
-    decorationGroup.add(roof);
+function movePlayer() {
+  let dx = 0, dz = 0;
+  if (keys.has('w')) dz -= player.speed;
+  if (keys.has('s')) dz += player.speed;
+  if (keys.has('a')) dx -= player.speed;
+  if (keys.has('d')) dx += player.speed;
+  if (dx || dz) {
+    player.x += dx;
+    player.z += dz;
+    camera.position.x += dx;
+    camera.position.z += dz;
+    controls.target.x += dx;
+    controls.target.z += dz;
   }
+  if (keys.has('q')) player.y = Math.min(35, player.y + player.speed);
+  if (keys.has('e')) player.y = Math.max(3, player.y - player.speed);
+  camera.position.y = player.y + 5;
 }
 
-function generate() {
-  clearDecorations();
+function updateUI(status) {
+  document.querySelector('#coord').textContent = `${status.x}, ${status.z}`;
+  document.querySelector('#chunkCoord').textContent = `${status.chunkX}, ${status.chunkZ}`;
+  document.querySelector('#chunks').textContent = status.loadedChunks;
+  document.querySelector('#seedStatus').textContent = infiniteWorld.seed;
+}
+
+function regenerate() {
   const seed = document.querySelector('#seed').value.trim() || '739182';
-  const size = Number(document.querySelector('#worldSize').value);
-  const data = new WorldGenerator(size).generate(seed);
-  const result = voxelWorld.build(data);
-
-  for (const cell of data.cells) {
-    if (!cell.tree || cell.biome === 'ocean') continue;
-    const y = Math.max(2, Math.min(19, Math.floor(cell.height * 14) + 3));
-    addTree(cell.x - data.size / 2 + .5, y, cell.z - data.size / 2 + .5, cell.biome === 'jungle' ? 1.2 : .85);
-  }
-
-  for (const village of data.villages) {
-    const cell = data.cells.find(c => c.x === village.x && c.z === village.z);
-    if (!cell) continue;
-    const y = Math.max(2, Math.min(19, Math.floor(cell.height * 14) + 3));
-    addVillage(village.x - data.size / 2 + .5, y, village.z - data.size / 2 + .5, village.type === 'large' ? 2 : 1);
-  }
-
-  controls.target.set(0, 5, 0);
-  document.querySelector('#biome').textContent = data.dominantBiome;
-  document.querySelector('#trees').textContent = data.treeCount;
-  document.querySelector('#villages').textContent = data.villages.length;
-  document.querySelector('#water').textContent = `${data.waterPercent}%`;
-  document.querySelector('#caves').textContent = `${data.caves.chamberCount} / ${data.caves.entranceCount}`;
-  document.querySelector('#chunks').textContent = result.chunks;
-  document.querySelector('#blocks').textContent = result.solidBlocks.toLocaleString();
+  infiniteWorld.setSeed(seed);
+  updateUI(infiniteWorld.update(player.x, player.z));
 }
 
-document.querySelector('#generate').addEventListener('click', generate);
+document.querySelector('#generate').addEventListener('click', regenerate);
 document.querySelector('#randomSeed').addEventListener('click', () => {
   document.querySelector('#seed').value = Math.floor(Math.random() * 999999999);
-  generate();
+  regenerate();
 });
-document.querySelector('#seed').addEventListener('keydown', e => { if (e.key === 'Enter') generate(); });
+document.querySelector('#seed').addEventListener('keydown', e => {
+  if (e.key === 'Enter') regenerate();
+});
 document.querySelector('#cavePreview').addEventListener('click', event => {
   const enabled = !voxelWorld.preview;
   voxelWorld.setPreview(enabled);
@@ -138,9 +108,12 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-generate();
+updateUI(infiniteWorld.update(player.x, player.z));
+
 function animate() {
   requestAnimationFrame(animate);
+  movePlayer();
+  updateUI(infiniteWorld.update(player.x, player.z));
   controls.update();
   renderer.render(scene, camera);
 }
