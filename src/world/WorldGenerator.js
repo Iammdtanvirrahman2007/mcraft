@@ -44,9 +44,9 @@ function fbm(x, z, seed) {
 export class WorldGenerator {
   constructor(size = 64) { this.size = size; }
 
-  generate(seedInput) {
+  generate(seedInput, offsetX = 0, offsetZ = 0) {
     const seedText = String(seedInput || '739182');
-    const seed = new SeedRandom(seedText);
+    const seed = new SeedRandom(`${seedText}:${offsetX}:${offsetZ}`);
     let numericSeed = 0;
     for (const char of seedText) numericSeed = (Math.imul(numericSeed, 31) + char.charCodeAt(0)) | 0;
 
@@ -56,14 +56,13 @@ export class WorldGenerator {
 
     for (let x = 0; x < this.size; x++) {
       for (let z = 0; z < this.size; z++) {
-        const nx = x - this.size / 2;
-        const nz = z - this.size / 2;
-        const heightNoise = fbm(nx, nz, numericSeed);
-        const moisture = fbm(nx + 500, nz - 200, numericSeed + 777);
-        const temperature = fbm(nx - 800, nz + 400, numericSeed + 1555);
-        const distance = Math.hypot(nx, nz) / (this.size * .71);
-        const islandFalloff = Math.max(0, distance - .55) * .8;
-        const height = Math.max(0, heightNoise - islandFalloff);
+        const gx = x + offsetX;
+        const gz = z + offsetZ;
+        const heightNoise = fbm(gx, gz, numericSeed);
+        const moisture = fbm(gx + 500, gz - 200, numericSeed + 777);
+        const temperature = fbm(gx - 800, gz + 400, numericSeed + 1555);
+        const continent = fbm(gx * .42, gz * .42, numericSeed + 3001);
+        const height = Math.max(0, heightNoise * .72 + continent * .28);
 
         let biome;
         if (height < .29) biome = 'ocean';
@@ -78,16 +77,15 @@ export class WorldGenerator {
         biomeCount[biome] = (biomeCount[biome] || 0) + 1;
         if (biome === 'ocean') waterCount++;
 
-        let tree = false;
-        if (['forest', 'jungle', 'taiga'].includes(biome) && seed.next() < (biome === 'jungle' ? .18 : .09)) {
-          tree = true; treeCount++;
-        }
-        cells.push({ x, z, height, biome, tree });
+        const treeRoll = hash2(gx, gz, numericSeed + 4001);
+        const tree = ['forest', 'jungle', 'taiga'].includes(biome) && treeRoll < (biome === 'jungle' ? .18 : .09);
+        if (tree) treeCount++;
+        cells.push({ x, z, globalX: gx, globalZ: gz, height, biome, tree });
       }
     }
 
     const villages = [];
-    const villageChance = new SeedRandom(numericSeed + 9981);
+    const villageChance = new SeedRandom(`${seedText}:villages:${offsetX}:${offsetZ}`);
     const candidates = cells.filter(c => ['plains', 'forest', 'desert'].includes(c.biome) && c.height > .36);
     for (let i = 0; i < Math.floor(this.size / 32); i++) {
       if (candidates.length && villageChance.next() > .15) {
@@ -101,17 +99,6 @@ export class WorldGenerator {
     const chunks = chunkManager.buildFromWorld({ cells, caves, villages });
     const dominantBiome = Object.entries(biomeCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'forest';
 
-    return {
-      seed: seedText,
-      size: this.size,
-      chunkSize: CHUNK_SIZE,
-      cells,
-      chunks,
-      villages,
-      caves,
-      treeCount,
-      waterPercent: Math.round(waterCount / cells.length * 100),
-      dominantBiome
-    };
+    return { seed: seedText, size: this.size, chunkSize: CHUNK_SIZE, offsetX, offsetZ, cells, chunks, villages, caves, treeCount, waterPercent: Math.round(waterCount / cells.length * 100), dominantBiome };
   }
 }
