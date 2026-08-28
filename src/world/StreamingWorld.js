@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { InfiniteWorldGenerator, CHUNK_SIZE, WORLD_HEIGHT, chunkKey, worldToChunk } from './InfiniteWorldGenerator.js';
 
 const FACE_OFFSETS = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+const BLOCK_GEOMETRY = new THREE.BoxGeometry(1, 1, 1);
 
 export class StreamingWorld {
   constructor(scene, materials, seed = '739182', loadRadius = 2) {
@@ -44,7 +45,13 @@ export class StreamingWorld {
   }
 
   disposeChunk(entry) {
-    entry.group.traverse(obj => { if (obj.geometry) obj.geometry.dispose(); });
+    entry.group.traverse(obj => {
+      if (obj.geometry && obj.geometry !== BLOCK_GEOMETRY) obj.geometry.dispose();
+      if (obj.userData?.chunkGrid) {
+        obj.geometry?.dispose();
+        obj.material?.dispose();
+      }
+    });
     this.root.remove(entry.group);
   }
 
@@ -57,12 +64,12 @@ export class StreamingWorld {
       if (!raw) return;
       const parsed = JSON.parse(raw);
       for (const [key, type] of Object.entries(parsed)) this.edits.set(key, type);
-    } catch { /* storage may be unavailable */ }
+    } catch {}
   }
 
   saveEdits() {
     try { localStorage.setItem(`mcraft-edits:${this.seed}`, JSON.stringify(Object.fromEntries(this.edits))); }
-    catch { /* ignore storage quota/private-mode errors */ }
+    catch {}
   }
 
   blockAt(x, y, z) {
@@ -84,14 +91,38 @@ export class StreamingWorld {
     data.solidBlocks = data.blocks.length;
   }
 
-  exposed(block) {
-    return FACE_OFFSETS.some(([dx,dy,dz]) => !this.blockAt(block.x + dx, block.y + dy, block.z + dz));
+  // Build a local occupancy set once per chunk. This avoids running procedural
+  // terrain/noise generation six times for every visible block.
+  getVisibleBlocks(data) {
+    const occupancy = new Set();
+    for (const b of data.blocks) occupancy.add(this.editKey(b.x, b.y, b.z));
+
+    const visible = [];
+    for (const block of data.blocks) {
+      let exposed = false;
+      for (const [dx, dy, dz] of FACE_OFFSETS) {
+        const nx = block.x + dx, ny = block.y + dy, nz = block.z + dz;
+        if (occupancy.has(this.editKey(nx, ny, nz))) continue;
+        // Only ask the procedural generator for neighbours outside this chunk.
+        // This preserves cross-chunk face culling without expensive repeated noise calls.
+        if (worldToChunk(nx) === data.cx && worldToChunk(nz) === data.cz) {
+          exposed = true;
+          break;
+        }
+        if (!this.blockAt(nx, ny, nz)) {
+          exposed = true;
+          break;
+        }
+      }
+      if (exposed) visible.push(block);
+    }
+    return visible;
   }
 
-  addInstancedBucket(group, type, blocks, castShadow = true) {
+  addInstancedBucket(group, type, blocks, castShadow = false) {
     if (!blocks.length) return;
     const material = this.materials[type] || this.materials.stone;
-    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), material, blocks.length);
+    const mesh = new THREE.InstancedMesh(BLOCK_GEOMETRY, material, blocks.length);
     const matrix = new THREE.Matrix4();
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
@@ -100,7 +131,8 @@ export class StreamingWorld {
     }
     mesh.instanceMatrix.needsUpdate = true;
     mesh.castShadow = castShadow;
-    mesh.receiveShadow = true;
+    mesh.receiveShadow = castShadow;
+    mesh.frustumCulled = true;
     mesh.userData.mcraftChunk = group.name;
     mesh.userData.blockType = type;
     mesh.userData.blocks = blocks;
@@ -118,15 +150,14 @@ export class StreamingWorld {
     const group = new THREE.Group();
     group.name = `Chunk_${cx}_${cz}`;
     const buckets = new Map();
-    for (const block of data.blocks) {
-      if (!this.exposed(block)) continue;
+    for (const block of this.getVisibleBlocks(data)) {
       const list = buckets.get(block.type) || [];
       list.push(block);
       buckets.set(block.type, list);
     }
-    for (const [type, blocks] of buckets) this.addInstancedBucket(group, type, blocks, type !== 'water');
+    for (const [type, blocks] of buckets) this.addInstancedBucket(group, type, blocks);
 
-    // Render the deterministic tree data that was previously generated but invisible.
+    // Trees are kept instanced and do not cast expensive dynamic shadows.
     for (const tree of data.trees) {
       const trunk = [];
       const leaves = [];
@@ -140,18 +171,19 @@ export class StreamingWorld {
           if (Math.abs(dx) + Math.abs(dz) <= r + 1) leaves.push({ x: tree.x - 0.5 + dx, y, z: tree.z - 0.5 + dz });
         }
       }
-      this.addInstancedBucket(group, 'trunk', trunk, true);
-      this.addInstancedBucket(group, 'leaves', leaves, true);
+      this.addInstancedBucket(group, 'trunk', trunk);
+      this.addInstancedBucket(group, 'leaves', leaves);
     }
 
-    const grid = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE)),
-      new THREE.LineBasicMaterial({ color: 0x1b2328, transparent: true, opacity: 0.22 })
-    );
-    grid.position.set(cx * CHUNK_SIZE + CHUNK_SIZE / 2, WORLD_HEIGHT / 2, cz * CHUNK_SIZE + CHUNK_SIZE / 2);
-    grid.visible = this.gridVisible;
-    grid.userData.chunkGrid = true;
-    group.add(grid);
+    if (this.gridVisible) {
+      const grid = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE)),
+        new THREE.LineBasicMaterial({ color: 0x1b2328, transparent: true, opacity: 0.22 })
+      );
+      grid.position.set(cx * CHUNK_SIZE + CHUNK_SIZE / 2, WORLD_HEIGHT / 2, cz * CHUNK_SIZE + CHUNK_SIZE / 2);
+      grid.userData.chunkGrid = true;
+      group.add(grid);
+    }
 
     this.root.add(group);
     const entry = { data, group };
@@ -174,13 +206,21 @@ export class StreamingWorld {
     if (y < 0 || y >= WORLD_HEIGHT) return false;
     this.edits.set(this.editKey(x, y, z), type);
     this.saveEdits();
-    this.rebuildChunk(worldToChunk(x), worldToChunk(z));
+    const cx = worldToChunk(x), cz = worldToChunk(z);
+    this.rebuildChunk(cx, cz);
+    // A border edit changes face visibility in an adjacent chunk too.
+    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    if (lx === 0) this.rebuildChunk(cx - 1, cz);
+    if (lx === CHUNK_SIZE - 1) this.rebuildChunk(cx + 1, cz);
+    if (lz === 0) this.rebuildChunk(cx, cz - 1);
+    if (lz === CHUNK_SIZE - 1) this.rebuildChunk(cx, cz + 1);
     return true;
   }
 
   setGridVisible(enabled) {
     this.gridVisible = !!enabled;
-    this.root.traverse(obj => { if (obj.userData?.chunkGrid) obj.visible = this.gridVisible; });
+    for (const entry of this.chunks.values()) this.rebuildChunk(entry.data.cx, entry.data.cz);
   }
 
   setPreview(enabled) {
@@ -226,7 +266,7 @@ export class StreamingWorld {
     }
     this.queue.sort((a,b) => a.d - b.d);
 
-    // Generate only one chunk per frame to avoid freezing when crossing into new territory.
+    // One chunk per frame keeps camera/input responsive while entering new terrain.
     const next = this.queue.shift();
     if (next) {
       const key = chunkKey(next.cx, next.cz);
