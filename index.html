@@ -3,12 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#10151b" />
   <title>MCraft | Infinite World</title>
   <link rel="stylesheet" href="./src/style.css" />
   <script type="importmap">
     {
       "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
       }
     }
   </script>
@@ -16,7 +18,7 @@
 <body>
   <aside class="panel">
     <div class="brand">⛏️ MCraft</div>
-    <p class="subtitle">Infinite Chunk World Generator</p>
+    <p class="subtitle">Infinite procedural chunk engine</p>
 
     <label for="seed">World Seed</label>
     <div class="row">
@@ -24,19 +26,24 @@
       <button id="randomSeed" title="Random seed">🎲</button>
     </div>
 
-    <button id="generate" class="primary">🌍 Generate / Reset World</button>
-    <button id="cavePreview" style="margin-top:10px">🕳️ Show Underground</button>
+    <button id="generate" class="primary">🌍 Generate / Reset</button>
+    <button id="toggleGrid" class="secondary">▦ Show Chunk Grid</button>
+    <button id="cavePreview" class="secondary">🕳️ Cave Preview</button>
 
     <div class="stats">
-      <div><span>World Seed</span><b id="seedStatus">739182</b></div>
-      <div><span>Player X/Z</span><b id="coord">0, 0</b></div>
-      <div><span>Chunk X/Z</span><b id="chunkCoord">0, 0</b></div>
-      <div><span>Loaded Chunks</span><b id="chunks">0</b></div>
+      <div><span>Seed</span><b id="seedStatus">739182</b></div>
+      <div><span>World X / Z</span><b id="coord">0, 0</b></div>
+      <div><span>Chunk X / Z</span><b id="chunkCoord">0, 0</b></div>
+      <div><span>Loaded</span><b id="chunks">0</b></div>
+      <div><span>Blocks</span><b id="blocks">0</b></div>
+      <div><span>Cave blocks</span><b id="caveBlocks">0</b></div>
     </div>
 
-    <p class="hint">WASD = move • Q/E = up/down • Drag = look • Scroll = zoom</p>
+    <div class="status" id="status">Ready</div>
+    <p class="hint">Click the world, then WASD = move • Space/Shift = up/down • Mouse = look • Esc = release mouse</p>
   </aside>
 
+  <div id="crosshair">+</div>
   <main id="viewport"></main>
   <script type="module" src="./src/main.js"></script>
 </body>
