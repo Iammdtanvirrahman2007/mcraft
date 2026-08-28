@@ -1,0 +1,8 @@
+{
+  "name": "Oak Tree",
+  "type": "tree",
+  "model": "./model.glb",
+  "scale": 1,
+  "biomes": ["forest", "plains"],
+  "spawnChance": 0.08
+}
