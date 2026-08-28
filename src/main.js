@@ -20,10 +20,10 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0, 0);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * .49;
-controls.minDistance = 12;
+controls.minDistance = 8;
 controls.maxDistance = 115;
 
-scene.add(new THREE.HemisphereLight(0xdff4ff, 0x526044, 2.2));
+scene.add(new THREE.HemisphereLight(0xdff4ff, 0x30251b, 2.2));
 const sun = new THREE.DirectionalLight(0xffffff, 3.2);
 sun.position.set(35, 70, 20);
 sun.castShadow = true;
@@ -31,6 +31,7 @@ scene.add(sun);
 
 const materials = {
   grass: new THREE.MeshStandardMaterial({ color: 0x5c9e48, roughness: 1 }),
+  plains: new THREE.MeshStandardMaterial({ color: 0x75a84d, roughness: 1 }),
   forest: new THREE.MeshStandardMaterial({ color: 0x4d8b43, roughness: 1 }),
   jungle: new THREE.MeshStandardMaterial({ color: 0x2f8c50, roughness: 1 }),
   taiga: new THREE.MeshStandardMaterial({ color: 0x568267, roughness: 1 }),
@@ -42,7 +43,9 @@ const materials = {
   trunk: new THREE.MeshStandardMaterial({ color: 0x76502f }),
   leaves: new THREE.MeshStandardMaterial({ color: 0x34713d }),
   village: new THREE.MeshStandardMaterial({ color: 0xb97845 }),
-  roof: new THREE.MeshStandardMaterial({ color: 0x7a4432 })
+  roof: new THREE.MeshStandardMaterial({ color: 0x7a4432 }),
+  cave: new THREE.MeshStandardMaterial({ color: 0x17120f, roughness: 1 }),
+  caveWall: new THREE.MeshStandardMaterial({ color: 0x44382f, roughness: 1 })
 };
 
 let worldGroup = new THREE.Group();
@@ -86,6 +89,50 @@ function addVillage(x, y, z, size = 1) {
   }
 }
 
+function addCaves(data) {
+  const entrances = data.caves?.entrances || [];
+  const entranceSet = new Set(entrances.map(e => `${e.x},${e.z}`));
+
+  for (const entrance of entrances) {
+    const cell = data.cells.find(c => c.x === entrance.x && c.z === entrance.z);
+    if (!cell) continue;
+    const x = entrance.x - data.size / 2;
+    const z = entrance.z - data.size / 2;
+    const top = Math.max(1, Math.floor(cell.height * 10) / 2 + .5);
+
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(entrance.radius * .9, entrance.radius * .58, Math.max(1.8, top - entrance.depth * .35), 14),
+      materials.caveWall
+    );
+    shaft.position.set(x, Math.max(.8, top / 2), z);
+    worldGroup.add(shaft);
+
+    const mouth = new THREE.Mesh(
+      new THREE.CylinderGeometry(entrance.radius * 1.05, entrance.radius, .25, 16),
+      materials.cave
+    );
+    mouth.scale.y = .65;
+    mouth.position.set(x, Math.max(.2, top - .12), z);
+    worldGroup.add(mouth);
+
+    const chamber = new THREE.Mesh(
+      new THREE.SphereGeometry(entrance.radius * 1.8, 18, 12),
+      materials.cave
+    );
+    chamber.scale.y = .62;
+    chamber.position.set(x, Math.max(.7, top - entrance.depth * .35), z);
+    worldGroup.add(chamber);
+  }
+
+  for (const tunnel of data.caves?.tunnels || []) {
+    if (entranceSet.has(`${tunnel.x},${tunnel.z}`)) continue;
+    if (tunnel.x % 4 !== 0 || tunnel.z % 4 !== 0) continue;
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(.28, 8, 6), materials.cave);
+    marker.position.set(tunnel.x - data.size / 2, Math.max(.55, tunnel.depth * .42), tunnel.z - data.size / 2);
+    worldGroup.add(marker);
+  }
+}
+
 function buildWorld(data) {
   clearWorld();
   const block = new THREE.BoxGeometry(1, 1, 1);
@@ -94,9 +141,17 @@ function buildWorld(data) {
   water.position.y = 0.28;
   worldGroup.add(water);
 
+  const entranceCells = new Set();
+  for (const entrance of data.caves?.entrances || []) {
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      entranceCells.add(`${entrance.x + dx},${entrance.z + dz}`);
+    }
+  }
+
   for (const cell of data.cells) {
     const y = Math.max(.45, Math.floor(cell.height * 10) / 2 + .5);
     if (cell.biome === 'ocean') continue;
+    if (entranceCells.has(`${cell.x},${cell.z}`)) continue;
     const mat = materials[cell.biome] || materials.grass;
     const terrain = new THREE.Mesh(block, mat);
     terrain.scale.y = y;
@@ -114,6 +169,7 @@ function buildWorld(data) {
     addVillage(village.x - data.size / 2, y, village.z - data.size / 2, village.type === 'large' ? 2 : 1);
   }
 
+  addCaves(data);
   controls.target.set(0, 1, 0);
 }
 
@@ -126,6 +182,8 @@ function generate() {
   document.querySelector('#trees').textContent = data.treeCount;
   document.querySelector('#villages').textContent = data.villages.length;
   document.querySelector('#water').textContent = `${data.waterPercent}%`;
+  const caveStat = document.querySelector('#caves');
+  if (caveStat) caveStat.textContent = `${data.caves.chamberCount} / ${data.caves.entrances.length}`;
 }
 
 document.querySelector('#generate').addEventListener('click', generate);
