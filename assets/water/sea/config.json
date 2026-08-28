@@ -1,0 +1,8 @@
+{
+  "name": "Sea",
+  "type": "water",
+  "model": "./model.glb",
+  "scale": 1,
+  "biomes": ["ocean"],
+  "infinite": true
+}
