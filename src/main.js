@@ -18,7 +18,7 @@ renderer.shadowMap.enabled = true;
 viewport.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 4, 0);
+controls.target.set(0, 5, 0);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * .92;
 controls.minDistance = 7;
@@ -50,16 +50,26 @@ const materials = {
 };
 
 const voxelWorld = new VoxelChunkRenderer(scene, materials);
+const decorationGroup = new THREE.Group();
+decorationGroup.name = 'MCraft_Decorations';
+scene.add(decorationGroup);
+
+function clearDecorations() {
+  decorationGroup.traverse(object => {
+    if (object.geometry) object.geometry.dispose();
+  });
+  decorationGroup.clear();
+}
 
 function addTree(x, y, z, scale = 1) {
   const trunk = new THREE.Mesh(new THREE.BoxGeometry(.34 * scale, 1.7 * scale, .34 * scale), materials.trunk);
   trunk.position.set(x, y + .85 * scale, z);
   trunk.castShadow = true;
-  scene.add(trunk);
+  decorationGroup.add(trunk);
   const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.25 * scale, 2.9 * scale, 7), materials.leaves);
   leaves.position.set(x, y + 2.35 * scale, z);
   leaves.castShadow = true;
-  scene.add(leaves);
+  decorationGroup.add(leaves);
 }
 
 function addVillage(x, y, z, size = 1) {
@@ -71,30 +81,26 @@ function addVillage(x, y, z, size = 1) {
     const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.1, 2.6), materials.village);
     body.position.set(px, y + 1.05, pz);
     body.castShadow = true;
-    scene.add(body);
+    decorationGroup.add(body);
     const roof = new THREE.Mesh(new THREE.ConeGeometry(2.15, 1.45, 4), materials.roof);
     roof.rotation.y = Math.PI / 4;
     roof.position.set(px, y + 2.82, pz);
     roof.castShadow = true;
-    scene.add(roof);
+    decorationGroup.add(roof);
   }
 }
 
 function generate() {
+  clearDecorations();
   const seed = document.querySelector('#seed').value.trim() || '739182';
   const size = Number(document.querySelector('#worldSize').value);
   const data = new WorldGenerator(size).generate(seed);
-
-  // Rebuild voxel chunks first. Caves physically remove blocks from underground.
   const result = voxelWorld.build(data);
 
-  // Decorative assets remain separate from the voxel terrain.
   for (const cell of data.cells) {
     if (!cell.tree || cell.biome === 'ocean') continue;
     const y = Math.max(2, Math.min(19, Math.floor(cell.height * 14) + 3));
-    const x = cell.x - data.size / 2 + .5;
-    const z = cell.z - data.size / 2 + .5;
-    addTree(x, y, z, cell.biome === 'jungle' ? 1.2 : .85);
+    addTree(cell.x - data.size / 2 + .5, y, cell.z - data.size / 2 + .5, cell.biome === 'jungle' ? 1.2 : .85);
   }
 
   for (const village of data.villages) {
@@ -114,18 +120,17 @@ function generate() {
   document.querySelector('#blocks').textContent = result.solidBlocks.toLocaleString();
 }
 
-document.querySelector('#generate').addEventListener('click', () => {
-  // Remove decorative objects while keeping the voxel renderer alive.
-  for (const child of [...scene.children]) {
-    if (child.userData?.mcraftDecoration) scene.remove(child);
-  }
-  generate();
-});
+document.querySelector('#generate').addEventListener('click', generate);
 document.querySelector('#randomSeed').addEventListener('click', () => {
   document.querySelector('#seed').value = Math.floor(Math.random() * 999999999);
   generate();
 });
 document.querySelector('#seed').addEventListener('keydown', e => { if (e.key === 'Enter') generate(); });
+document.querySelector('#cavePreview').addEventListener('click', event => {
+  const enabled = !voxelWorld.preview;
+  voxelWorld.setPreview(enabled);
+  event.currentTarget.textContent = enabled ? '🧱 Hide Underground' : '🕳️ Show Underground';
+});
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
