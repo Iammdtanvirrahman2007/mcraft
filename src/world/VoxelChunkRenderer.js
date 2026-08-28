@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CHUNK_SIZE, ChunkManager } from './ChunkManager.js';
+import { WorldGenerator } from './WorldGenerator.js';
 
 const WORLD_HEIGHT = 20;
 
@@ -9,8 +10,8 @@ function getTop(cell) {
 }
 
 function blockMaterial(materials, y, top, biome) {
-  if (y === top) return materials[biome] || materials.grass;
-  if (y >= top - 2) return materials.dirt;
+  if (y === top - 1) return materials[biome] || materials.grass;
+  if (y >= top - 3) return materials.dirt;
   return materials.stone;
 }
 
@@ -27,12 +28,13 @@ export class VoxelChunkRenderer {
     this.chunkManager = new ChunkManager(CHUNK_SIZE);
     this.blockSize = 1;
     this.preview = false;
+    this.chunkGroups = new Map();
+    this.chunkGenerator = new WorldGenerator(CHUNK_SIZE);
   }
 
   clear() {
-    this.group.traverse(object => {
-      if (object.geometry) object.geometry.dispose();
-    });
+    for (const [cx, cz] of this.chunkGroups.values()) this.unloadChunk(cx, cz);
+    this.chunkGroups.clear();
     this.group.clear();
   }
 
@@ -41,7 +43,7 @@ export class VoxelChunkRenderer {
     this.group.traverse(object => {
       if (!object.isInstancedMesh || !object.material) return;
       object.material.transparent = enabled;
-      object.material.opacity = enabled ? 0.28 : 1;
+      object.material.opacity = enabled ? 0.22 : 1;
       object.material.depthWrite = !enabled;
       object.material.needsUpdate = true;
     });
@@ -50,12 +52,59 @@ export class VoxelChunkRenderer {
   build(world) {
     this.clear();
     const chunks = this.chunkManager.buildFromWorld(world);
-    const solid = new Set();
-    const biomeByColumn = new Map();
+    for (const chunk of chunks) this.renderChunk(chunk, world);
+    const stats = this.countSolidBlocks(chunks);
+    return { chunks: chunks.length, solidBlocks: stats };
+  }
 
-    for (const cell of world.cells) {
-      const top = getTop(cell);
-      biomeByColumn.set(`${cell.x},${cell.z}`, { cell, top });
+  buildChunk(cx, cz, seed) {
+    const keyId = `${cx},${cz}`;
+    if (this.chunkGroups.has(keyId)) return { cx, cz };
+    const local = this.chunkGenerator.generate(`${seed}:${cx}:${cz}`);
+    local.chunkX = cx;
+    local.chunkZ = cz;
+    local.size = CHUNK_SIZE;
+    this.renderChunk({ cx, cz, size: CHUNK_SIZE, cells: local.cells, caves: this.localizeCaves(local.caves) }, {
+      size: CHUNK_SIZE,
+      caves: this.localizeCaves(local.caves)
+    });
+    return { cx, cz };
+  }
+
+  localizeCaves(caves = { tunnels: [], chambers: [], entrances: [] }) {
+    return {
+      tunnels: caves.tunnels || [],
+      chambers: caves.chambers || [],
+      entrances: caves.entrances || []
+    };
+  }
+
+  unloadChunk(cx, cz) {
+    const id = `${cx},${cz}`;
+    const group = this.chunkGroups.get(id);
+    if (!group) return;
+    group.traverse(object => {
+      if (object.geometry) object.geometry.dispose();
+      if (object.material && object.material !== this.materials.grass && object.material !== this.materials.dirt && object.material !== this.materials.stone) {
+        object.material.dispose?.();
+      }
+    });
+    this.group.remove(group);
+    this.chunkGroups.delete(id);
+  }
+
+  renderChunk(chunk, world) {
+    const id = `${chunk.cx},${chunk.cz}`;
+    this.unloadChunk(chunk.cx, chunk.cz);
+    const group = new THREE.Group();
+    group.name = `Chunk_${chunk.cx}_${chunk.cz}`;
+    group.userData.chunkX = chunk.cx;
+    group.userData.chunkZ = chunk.cz;
+
+    const cells = chunk.cells || [];
+    const biomeByColumn = new Map(cells.map(cell => [`${cell.x},${cell.z}`, { cell, top: getTop(cell) }]));
+    const solid = new Set();
+    for (const { cell, top } of biomeByColumn.values()) {
       if (cell.biome === 'ocean') continue;
       for (let y = 0; y < top; y++) solid.add(key(cell.x, y, cell.z));
     }
@@ -65,86 +114,67 @@ export class VoxelChunkRenderer {
       for (let dx = -r; dx <= r; dx++) {
         for (let dy = -r; dy <= r; dy++) {
           for (let dz = -r; dz <= r; dz++) {
-            if (dx * dx + dy * dy + dz * dz <= radius * radius + 0.25) {
-              solid.delete(key(x + dx, y + dy, z + dz));
-            }
+            if (dx * dx + dy * dy + dz * dz <= radius * radius + 0.25) solid.delete(key(x + dx, y + dy, z + dz));
           }
         }
       }
     };
 
-    for (const tunnel of world.caves?.tunnels || []) {
-      const depth = Math.max(2, Math.min(WORLD_HEIGHT - 2, Math.floor(tunnel.depth)));
-      carve(tunnel.x, depth, tunnel.z, Math.max(1, tunnel.radius));
-    }
-    for (const chamber of world.caves?.chambers || []) {
-      const depth = Math.max(2, Math.min(WORLD_HEIGHT - 2, Math.floor(chamber.depth)));
-      carve(chamber.x, depth, chamber.z, Math.max(1.8, chamber.radius));
-    }
+    for (const tunnel of world.caves?.tunnels || []) carve(tunnel.x, Math.max(2, Math.min(WORLD_HEIGHT - 2, Math.floor(tunnel.depth))), tunnel.z, Math.max(1, tunnel.radius));
+    for (const chamber of world.caves?.chambers || []) carve(chamber.x, Math.max(2, Math.min(WORLD_HEIGHT - 2, Math.floor(chamber.depth))), chamber.z, Math.max(1.8, chamber.radius));
     for (const entrance of world.caves?.entrances || []) {
       const column = biomeByColumn.get(`${entrance.x},${entrance.z}`);
       if (!column) continue;
-      for (let y = Math.max(1, Math.floor(entrance.depth)); y < column.top; y++) {
-        carve(entrance.x, y, entrance.z, entrance.radius * 0.65);
+      for (let y = Math.max(1, Math.floor(entrance.depth)); y < column.top; y++) carve(entrance.x, y, entrance.z, entrance.radius * .65);
+    }
+
+    const buckets = new Map();
+    for (const { cell, top } of biomeByColumn.values()) {
+      for (let y = 0; y < top; y++) {
+        if (!solid.has(key(cell.x, y, cell.z))) continue;
+        const exposed = [[cell.x + 1, y, cell.z], [cell.x - 1, y, cell.z], [cell.x, y + 1, cell.z], [cell.x, y - 1, cell.z], [cell.x, y, cell.z + 1], [cell.x, y, cell.z - 1]].some(([x, yy, z]) => !solid.has(key(x, yy, z)));
+        if (!exposed) continue;
+        const material = blockMaterial(this.materials, y, top, cell.biome);
+        const list = buckets.get(material) || [];
+        list.push({ x: cell.x, y, z: cell.z });
+        buckets.set(material, list);
       }
     }
 
-    for (const chunk of chunks) {
-      const materialBuckets = new Map();
-      for (let x = chunk.cx * CHUNK_SIZE; x < chunk.cx * CHUNK_SIZE + CHUNK_SIZE; x++) {
-        for (let z = chunk.cz * CHUNK_SIZE; z < chunk.cz * CHUNK_SIZE + CHUNK_SIZE; z++) {
-          const column = biomeByColumn.get(`${x},${z}`);
-          if (!column) continue;
-          for (let y = 0; y < column.top; y++) {
-            if (!solid.has(key(x, y, z))) continue;
-            const exposed = [
-              [x + 1, y, z], [x - 1, y, z], [x, y + 1, z],
-              [x, y - 1, z], [x, y, z + 1], [x, y, z - 1]
-            ].some(([nx, ny, nz]) => !solid.has(key(nx, ny, nz)));
-            if (!exposed) continue;
-            const material = blockMaterial(this.materials, y, column.top - 1, column.cell.biome);
-            const bucket = materialBuckets.get(material) || [];
-            bucket.push({ x, y, z });
-            materialBuckets.set(material, bucket);
-          }
-        }
-      }
-
-      const group = new THREE.Group();
-      group.name = `Chunk_${chunk.cx}_${chunk.cz}`;
-      for (const [material, blocks] of materialBuckets) {
-        const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(this.blockSize, this.blockSize, this.blockSize), material, blocks.length);
-        const matrix = new THREE.Matrix4();
-        blocks.forEach((block, index) => {
-          matrix.makeTranslation(block.x - world.size / 2 + 0.5, block.y + 0.5, block.z - world.size / 2 + 0.5);
-          mesh.setMatrixAt(index, matrix);
-        });
-        mesh.instanceMatrix.needsUpdate = true;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        group.add(mesh);
-      }
-
-      const outline = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.BoxGeometry(CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE)),
-        new THREE.LineBasicMaterial({ color: 0x263238, transparent: true, opacity: 0.28 })
-      );
-      outline.position.set(
-        chunk.cx * CHUNK_SIZE - world.size / 2 + CHUNK_SIZE / 2,
-        WORLD_HEIGHT / 2,
-        chunk.cz * CHUNK_SIZE - world.size / 2 + CHUNK_SIZE / 2
-      );
-      group.add(outline);
-      this.group.add(group);
+    const originX = chunk.cx * CHUNK_SIZE;
+    const originZ = chunk.cz * CHUNK_SIZE;
+    for (const [material, blocks] of buckets) {
+      const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), material, blocks.length);
+      const matrix = new THREE.Matrix4();
+      blocks.forEach((block, index) => {
+        matrix.makeTranslation(block.x - originX + chunk.cx * CHUNK_SIZE + .5, block.y + .5, block.z - originZ + chunk.cz * CHUNK_SIZE + .5);
+        mesh.setMatrixAt(index, matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
     }
 
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(world.size, world.size), this.materials.water);
-    water.rotation.x = -Math.PI / 2;
-    water.position.y = 2.05;
-    this.group.add(water);
+    const outline = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE)),
+      new THREE.LineBasicMaterial({ color: 0x263238, transparent: true, opacity: .22 })
+    );
+    outline.position.set(CHUNK_SIZE / 2, WORLD_HEIGHT / 2, CHUNK_SIZE / 2);
+    group.position.set(originX, 0, originZ);
+    group.add(outline);
 
+    this.group.add(group);
+    this.chunkGroups.set(id, group);
     this.setPreview(this.preview);
-    return { chunks: chunks.length, solidBlocks: solid.size };
+  }
+
+  countSolidBlocks(chunks) {
+    let total = 0;
+    for (const chunk of chunks) {
+      for (const cell of chunk.cells || []) total += getTop(cell);
+    }
+    return total;
   }
 }
 
