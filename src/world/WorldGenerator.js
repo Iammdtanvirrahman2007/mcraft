@@ -1,4 +1,5 @@
 import { CaveGenerator } from './CaveGenerator.js';
+import { ChunkManager, CHUNK_SIZE } from './ChunkManager.js';
 
 export class SeedRandom {
   constructor(seed) {
@@ -96,11 +97,16 @@ export class WorldGenerator {
     }
 
     const caves = new CaveGenerator(this.size).generate(cells, numericSeed);
+    const chunkManager = new ChunkManager(CHUNK_SIZE);
+    const chunks = chunkManager.buildFromWorld({ cells, caves, villages });
     const dominantBiome = Object.entries(biomeCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'forest';
+
     return {
       seed: seedText,
       size: this.size,
+      chunkSize: CHUNK_SIZE,
       cells,
+      chunks,
       villages,
       caves,
       treeCount,
