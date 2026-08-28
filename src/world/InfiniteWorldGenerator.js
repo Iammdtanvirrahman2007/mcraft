@@ -100,8 +100,7 @@ export class InfiniteWorldGenerator {
   blockAt(x, y, z) {
     if (y < 0 || y >= WORLD_HEIGHT) return false;
     const surface = this.surfaceHeight(x, z);
-    if (surface < SEA_LEVEL && y > surface && y <= SEA_LEVEL) return true;
-    if (y > surface) return false;
+    if (y > surface) return surface < SEA_LEVEL && y <= SEA_LEVEL;
     return !this.isCave(x, y, z, surface);
   }
 
@@ -113,7 +112,8 @@ export class InfiniteWorldGenerator {
 
   generateChunk(cx, cz) {
     const blocks = [];
-    let solidBlocks = 0, caveBlocks = 0, treeCount = 0;
+    const trees = [];
+    let solidBlocks = 0, caveBlocks = 0;
     const biomeCounts = {};
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -125,10 +125,7 @@ export class InfiniteWorldGenerator {
         biomeCounts[biome] = (biomeCounts[biome] || 0) + 1;
 
         for (let y = 0; y <= surface; y++) {
-          if (this.isCave(x, y, z, surface)) {
-            caveBlocks++;
-            continue;
-          }
+          if (this.isCave(x, y, z, surface)) { caveBlocks++; continue; }
           let type = 'stone';
           if (y === surface) type = biome === 'beach' || biome === 'desert' ? 'sand' : 'grass';
           else if (y >= surface - 3) type = 'dirt';
@@ -139,12 +136,15 @@ export class InfiniteWorldGenerator {
         if (surface < SEA_LEVEL) {
           for (let y = surface + 1; y <= SEA_LEVEL; y++) blocks.push({ x, y, z, type: 'water' });
         }
-        if (this.treeAt(x, z, biome, surface)) treeCount++;
+
+        if (this.treeAt(x, z, biome, surface)) {
+          trees.push({ x: x + 0.5, y: surface + 1, z: z + 0.5, type: biome === 'jungle' ? 'jungle' : biome === 'taiga' ? 'pine' : 'oak' });
+        }
       }
     }
 
     return {
-      key: chunkKey(cx, cz), cx, cz, blocks, solidBlocks, caveBlocks, treeCount,
+      key: chunkKey(cx, cz), cx, cz, blocks, trees, solidBlocks, caveBlocks,
       dominantBiome: Object.entries(biomeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'plains'
     };
   }
