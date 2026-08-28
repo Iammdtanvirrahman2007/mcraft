@@ -1,0 +1,9 @@
+{
+  "name": "Pond",
+  "type": "water",
+  "model": "./model.glb",
+  "scale": 1,
+  "biomes": ["forest", "plains"],
+  "minSize": 4,
+  "maxSize": 12
+}
