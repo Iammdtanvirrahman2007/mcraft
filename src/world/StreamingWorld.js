@@ -23,6 +23,7 @@ export class StreamingWorld {
     this.queue = [];
     this.gridVisible = false;
     this.preview = false;
+    this.loadEdits();
   }
 
   setSeed(seed) {
@@ -43,9 +44,7 @@ export class StreamingWorld {
   }
 
   disposeChunk(entry) {
-    entry.group.traverse(obj => {
-      if (obj.geometry) obj.geometry.dispose();
-    });
+    entry.group.traverse(obj => { if (obj.geometry) obj.geometry.dispose(); });
     this.root.remove(entry.group);
   }
 
@@ -58,14 +57,12 @@ export class StreamingWorld {
       if (!raw) return;
       const parsed = JSON.parse(raw);
       for (const [key, type] of Object.entries(parsed)) this.edits.set(key, type);
-    } catch { /* storage can be unavailable in private/restricted contexts */ }
+    } catch { /* storage may be unavailable */ }
   }
 
   saveEdits() {
-    try {
-      const object = Object.fromEntries(this.edits);
-      localStorage.setItem(`mcraft-edits:${this.seed}`, JSON.stringify(object));
-    } catch { /* ignore quota/storage errors */ }
+    try { localStorage.setItem(`mcraft-edits:${this.seed}`, JSON.stringify(Object.fromEntries(this.edits))); }
+    catch { /* ignore storage quota/private-mode errors */ }
   }
 
   blockAt(x, y, z) {
@@ -79,8 +76,7 @@ export class StreamingWorld {
     const map = new Map(data.blocks.map(b => [this.editKey(b.x, b.y, b.z), b]));
     for (const [key, type] of this.edits) {
       const [x, y, z] = key.split(',').map(Number);
-      const inChunk = worldToChunk(x) === data.cx && worldToChunk(z) === data.cz;
-      if (!inChunk || y < 0 || y >= WORLD_HEIGHT) continue;
+      if (worldToChunk(x) !== data.cx || worldToChunk(z) !== data.cz || y < 0 || y >= WORLD_HEIGHT) continue;
       if (type === null) map.delete(key);
       else map.set(key, { x, y, z, type });
     }
@@ -114,7 +110,6 @@ export class StreamingWorld {
   buildChunk(cx, cz) {
     const key = chunkKey(cx, cz);
     if (this.chunks.has(key)) return this.chunks.get(key);
-
     let data = this.cache.get(key);
     if (data) this.cache.delete(key);
     else data = this.generator.generateChunk(cx, cz);
@@ -131,7 +126,7 @@ export class StreamingWorld {
     }
     for (const [type, blocks] of buckets) this.addInstancedBucket(group, type, blocks, type !== 'water');
 
-    // Render deterministic trees that the generator already creates.
+    // Render the deterministic tree data that was previously generated but invisible.
     for (const tree of data.trees) {
       const trunk = [];
       const leaves = [];
@@ -218,9 +213,7 @@ export class StreamingWorld {
     const targets = [];
     for (let dz = -this.loadRadius; dz <= this.loadRadius; dz++) {
       for (let dx = -this.loadRadius; dx <= this.loadRadius; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dz)) <= this.loadRadius) {
-          targets.push({ cx: centerX + dx, cz: centerZ + dz, d: Math.hypot(dx, dz) });
-        }
+        if (Math.max(Math.abs(dx), Math.abs(dz)) <= this.loadRadius) targets.push({ cx: centerX + dx, cz: centerZ + dz, d: Math.hypot(dx, dz) });
       }
     }
     targets.sort((a,b) => a.d - b.d);
@@ -233,7 +226,7 @@ export class StreamingWorld {
     }
     this.queue.sort((a,b) => a.d - b.d);
 
-    // One chunk per frame keeps the camera responsive while traveling through new terrain.
+    // Generate only one chunk per frame to avoid freezing when crossing into new territory.
     const next = this.queue.shift();
     if (next) {
       const key = chunkKey(next.cx, next.cz);
@@ -245,14 +238,7 @@ export class StreamingWorld {
       const [cx, cz] = key.split(',').map(Number);
       if (Math.max(Math.abs(cx - centerX), Math.abs(cz - centerZ)) > this.unloadRadius) this.unload(cx, cz);
     }
-
-    return {
-      moved,
-      centerX,
-      centerZ,
-      complete: targets.every(t => this.chunks.has(chunkKey(t.cx, t.cz))),
-      queued: this.queue.length
-    };
+    return { moved, centerX, centerZ, complete: targets.every(t => this.chunks.has(chunkKey(t.cx, t.cz))), queued: this.queue.length };
   }
 
   getStats() {
