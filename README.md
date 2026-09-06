@@ -23,7 +23,7 @@ A Minecraft-inspired procedural 3D voxel world engine for the browser. MCraft no
 - Responsive control panel for smaller screens
 - High-performance renderer settings and capped pixel ratio
 
-## Run
+## Run in browser
 
 No build step is required. Serve the repository with a static HTTP server:
 
@@ -33,7 +33,26 @@ python3 -m http.server 8000
 
 Open `http://localhost:8000`.
 
-Click the 3D world to capture the mouse.
+## Android Studio / APK
+
+The repository is now also an Android Studio Gradle project. The Android app wraps the existing web game in a hardware-accelerated WebView, so the browser version and Android version share the same source files and assets.
+
+### Open in Android Studio
+
+1. Clone/download this repository.
+2. In Android Studio choose **File → Open** and select the repository root, the folder containing `settings.gradle.kts`.
+3. Allow Android Studio to install/sync the required Gradle and Android SDK components.
+4. Select the **app** run configuration.
+5. Start an emulator or connect an Android phone with USB debugging enabled.
+6. Press **Run ▶**.
+
+To build an APK, use **Build → Build APK(s)**. The debug APK will be under `app/build/outputs/apk/debug/` after a successful build.
+
+> The current Android wrapper uses the same `index.html`, `src/`, and `assets/` files directly from the repository. Three.js is still loaded from its existing jsDelivr import map, so the first Android launch needs internet access for that dependency.
+
+### Android status
+
+The Android wrapper is intended as the first native packaging layer. The current game controls are still the browser controls (WASD/mouse/keyboard), so touch-first movement controls can be added as the next Android-specific gameplay step.
 
 ### Controls
 
@@ -61,7 +80,10 @@ src/
     └── VoxelChunkRenderer.js       # legacy renderer/debug implementation
 
 assets/
-└── ...                             # future GLB/model assets
+└── ...                             # models, textures and future game assets
+
+app/
+└── ...                             # Android Studio WebView wrapper
 ```
 
 ### Determinism
@@ -84,3 +106,4 @@ Block edits are stored by absolute `x,y,z` coordinate and scoped to the current 
 8. Mobs, health and gameplay systems
 9. Web Worker chunk generation for even larger worlds
 10. Multiplayer synchronization
+11. Android touch controls and mobile HUD
